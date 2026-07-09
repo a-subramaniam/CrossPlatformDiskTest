@@ -19,7 +19,7 @@ jobs:
         shell: pwsh
         run: |
           $slnDir = (Get-Location).Path + "\"
-          msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj /restore /p:RestorePackagesConfig=true "/p:SolutionDir=$slnDir" /p:Configuration=Release /p:Platform=AnyCPU /verbosity:minimal
+          msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj /restore /p:RestorePackagesConfig=true "/p:SolutionDir=$slnDir" /p:Configuration=Release /p:Platform=AnyCPU /p:Prefer32Bit=false /verbosity:minimal
       - uses: actions/upload-artifact@v4
         with:
           name: CPDT-Windows
