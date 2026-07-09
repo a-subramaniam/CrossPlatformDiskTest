@@ -88,25 +88,45 @@ jobs:
       - name: Disable Costura (ship loose DLLs for compatibility)
         shell: pwsh
         run: |
-          # Replace FodyWeavers.xml with an empty config — file must exist but
-          # omitting <Costura/> means Fody runs without bundling any DLLs.
           $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
           Write-Host "Costura disabled — DLLs will be loose in output folder"
-          Get-Content "Saplin.CPDT.WPF\FodyWeavers.xml"
 
       - name: Upgrade SkiaSharp to 2.88.8 (fixes MissingMethodException)
         shell: pwsh
         run: |
-          # CPDT.Extra.dll in References\ was compiled against SkiaSharp 2.88.0.0,
-          # but packages.config pins SkiaSharp to 1.60.3. At runtime the version
-          # mismatch triggers MissingMethodException in App.InitializeComponent().
-          # nuget update patches packages.config AND .csproj HintPaths for every
-          # project in the solution.
-          nuget update CrossPlatformDiskTest.sln -Id SkiaSharp -Version 2.88.8 -NonInteractive
-          nuget update CrossPlatformDiskTest.sln -Id SkiaSharp.Views -Version 2.88.8 -NonInteractive
-          nuget update CrossPlatformDiskTest.sln -Id SkiaSharp.Views.Forms -Version 2.88.8 -NonInteractive
-          Write-Host "SkiaSharp upgraded to 2.88.8 across all projects"
+          # CPDT.Extra.dll was compiled against SkiaSharp 2.88.0.0 but packages.config
+          # pins 1.60.3 — version mismatch causes MissingMethodException at startup.
+          # Patch files directly instead of nuget update (avoids Android project error).
+
+          # WPF packages.config
+          $f = "Saplin.CPDT.WPF\packages.config"
+          (Get-Content $f -Raw) `
+            -replace 'id="SkiaSharp" version="1\.60\.3"',       'id="SkiaSharp" version="2.88.8"' `
+            -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views" version="2.88.8"' `
+            -replace 'id="SkiaSharp\.Views\.Forms" version="1\.60\.3"','id="SkiaSharp.Views.Forms" vers
+            Set-Content $f
+          Write-Host "Patched $f"
+
+          # WPF .csproj — update HintPaths and assembly identity
+          $f = "Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"
+          (Get-Content $f -Raw) `
+            -replace 'SkiaSharp\.1\.60\.3',             'SkiaSharp.2.88.8' `
+            -replace 'SkiaSharp\.Views\.Forms\.1\.60\.3','SkiaSharp.Views.Forms.2.88.8' `
+            -replace 'SkiaSharp\.Views\.1\.60\.3',      'SkiaSharp.Views.2.88.8' `
+            -replace 'SkiaSharp, Version=1\.60\.0\.0',  'SkiaSharp, Version=2.88.0.0' |
+            Set-Content $f
+          Write-Host "Patched $f"
+
+          # UICore .csproj (PackageReference style, netstandard2.0)
+          $f = "Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj"
+          (Get-Content $f -Raw) `
+            -replace '"SkiaSharp\.Views\.Forms" Version="1\.60\.3"', '"SkiaSharp.Views.Forms" Version="2.88.8"' `
+            -replace '"SkiaSharp\.Views" Version="1\.60\.3"',        '"SkiaSharp.Views" Version="2.88.8
+            -replace '"SkiaSharp" Version="1\.60\.3"',               '"SkiaSharp" Version="2.88.8"' |
+            Set-Content $f
+          Write-Host "Patched $f"
+          Write-Host "SkiaSharp upgraded to 2.88.8"
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
