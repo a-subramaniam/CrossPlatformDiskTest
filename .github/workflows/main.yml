@@ -1,0 +1,26 @@
+name: Build CPDT — Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply telemetry patch
+        shell: pwsh
+        run: |
+          $f = "Saplin.CPDT.UICore\ViewModels\ResultsDbViewModel.cs"
+          (Get-Content $f -Raw) -replace 'public const string cpdt_web_url = @"https://maxim-saplin\.github\.io/cpdt_results/";','public const string cpdt_web_url = @"";' | Set-Content $f
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build
+        shell: pwsh
+        run: |
+          $slnDir = (Get-Location).Path + "\"
+          msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj /restore /p:RestorePackagesConfig=true "/p:SolutionDir=$slnDir" /p:Configuration=Release /p:Platform=AnyCPU /verbosity:minimal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CPDT-Windows
+          path: Saplin.CPDT.WPF\bin\Release\CPDT.exe
