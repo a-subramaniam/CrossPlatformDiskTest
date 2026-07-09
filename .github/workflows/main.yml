@@ -1,6 +1,5 @@
 name: Build CPDT — Telemetry-Patched
 
-# Run manually from the Actions tab whenever you need a fresh build
 on:
   workflow_dispatch:
     inputs:
@@ -10,10 +9,9 @@ on:
         default: ''
 
 jobs:
-  # ── macOS build ────────────────────────────────────────────────────────────
   build-macos:
     name: macOS — Xamarin.Mac
-    runs-on: macos-13        # macos-14 dropped Xamarin; stay on 13
+    runs-on: macos-13
 
     steps:
       - name: Checkout source
@@ -60,7 +58,6 @@ jobs:
           path: CPDT-macOS.zip
           retention-days: 30
 
-  # ── Windows build ──────────────────────────────────────────────────────────
   build-windows:
     name: Windows — .NET Framework 4.8
     runs-on: windows-latest
@@ -85,23 +82,18 @@ jobs:
           Write-Host "Patch applied:"
           Select-String 'cpdt_web_url' $target
 
-      - name: Disable Costura (ship loose DLLs for compatibility)
+      - name: Disable Costura
         shell: pwsh
         run: |
-          # Replace FodyWeavers.xml with an empty config — file must exist but
-          # omitting <Costura/> means Fody runs without bundling any DLLs.
           $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
-          Write-Host "Costura disabled — DLLs will be loose in output folder"
-          Get-Content "Saplin.CPDT.WPF\FodyWeavers.xml"
 
-      - name: Upgrade SkiaSharp to 2.88.8 (fixes MissingMethodException)
+      - name: Upgrade SkiaSharp to 2.88.8
         shell: pwsh
         run: |
           $f="Saplin.CPDT.WPF\packages.config"; $c=(Get-Content $f -Raw) -replace 'id="SkiaSharp" version="1\.60\.3"','id="SkiaSharp" version="2.88.8"' -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views" version="2.88.8"' -replace 'id="SkiaSharp\.Views\.Forms" version="1\.60\.3"','id="SkiaSharp.Views.Forms" version="2.88.8"'; Set-Content $f $c; Write-Host "Patched $f"
           $f="Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"; $c=(Get-Content $f -Raw) -replace 'SkiaSharp\.Views\.Forms\.1\.60\.3','SkiaSharp.Views.Forms.2.88.8' -replace 'SkiaSharp\.Views\.1\.60\.3','SkiaSharp.Views.2.88.8' -replace 'SkiaSharp\.1\.60\.3','SkiaSharp.2.88.8' -replace 'SkiaSharp, Version=1\.60\.0\.0','SkiaSharp, Version=2.88.0.0' -replace 'SkiaSharp\.Views\.Desktop, Version=1\.60\.0\.0','SkiaSharp.Views.Desktop, Version=2.88.0.0' -replace 'SkiaSharp\.Views\.Forms, Version=1\.60\.0\.0','SkiaSharp.Views.Forms, Version=2.88.0.0' -replace 'SkiaSharp\.Views\.WPF, Version=1\.60\.0\.0','SkiaSharp.Views.WPF, Version=2.88.0.0' -replace '<Error Condition="[^"]*SkiaSharp[^"]*"[^>]*/>', '' -replace '(packages\\SkiaSharp\.\d[^\\]*)\\lib\\net45\\','$1\lib\netstandard2.0\' -replace '(packages\\SkiaSharp\.Views\.\d[^\\]*)\\lib\\net45\\','$1\lib\net461\' -replace '(packages\\SkiaSharp\.Views\.Forms\.\d[^\\]*)\\lib\\netstandard1\.3\\','$1\lib\netstandard2.0\'; Set-Content $f $c; Write-Host "Patched $f"
           $f="Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj"; $c=(Get-Content $f -Raw) -replace '"SkiaSharp\.Views\.Forms" Version="1\.60\.3"','"SkiaSharp.Views.Forms" Version="2.88.8"' -replace '"SkiaSharp\.Views" Version="1\.60\.3"','"SkiaSharp.Views" Version="2.88.8"' -replace '"SkiaSharp" Version="1\.60\.3"','"SkiaSharp" Version="2.88.8"'; Set-Content $f $c; Write-Host "Patched $f"
-          Write-Host "SkiaSharp upgraded to 2.88.8"
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -110,50 +102,37 @@ jobs:
         shell: pwsh
         run: |
           $slnDir = (Get-Location).Path + "\"
-          msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj /t:Restore /p:RestorePackagesConfig=true `
-            "/p:SolutionDir=$slnDir" /verbosity:minimal
+          msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj /t:Restore /p:RestorePackagesConfig=true "/p:SolutionDir=$slnDir" /verbosity:minimal
 
-      - name: Inspect SkiaSharp 2.88.8 package DLL paths
+      - name: Inspect SkiaSharp package DLL paths
         shell: pwsh
         run: |
-          Write-Host "=== SkiaSharp.2.88.8 DLLs ==="
+          Write-Host "=== SkiaSharp.2.88.8 ==="
           Get-ChildItem "packages\SkiaSharp.2.88.8" -Recurse -Filter "*.dll" | Select-Object -ExpandProperty FullName
-          Write-Host "=== SkiaSharp.Views.2.88.8 DLLs ==="
+          Write-Host "=== SkiaSharp.Views.2.88.8 ==="
           Get-ChildItem "packages\SkiaSharp.Views.2.88.8" -Recurse -Filter "*.dll" | Select-Object -ExpandProperty FullName
-          Write-Host "=== SkiaSharp.Views.Forms.2.88.8 DLLs ==="
+          Write-Host "=== SkiaSharp.Views.Forms.2.88.8 ==="
           Get-ChildItem "packages\SkiaSharp.Views.Forms.2.88.8" -Recurse -Filter "*.dll" | Select-Object -ExpandProperty FullName
 
       - name: Build Release
         shell: pwsh
         run: |
           $slnDir = (Get-Location).Path + "\"
-          msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj `
-            "/p:SolutionDir=$slnDir" /p:Configuration=Release /p:Platform=AnyCPU `
-            /p:Prefer32Bit=false /verbosity:minimal
-
-      - name: List build output
-        shell: pwsh
-        run: Get-ChildItem "Saplin.CPDT.WPF\bin\Release" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+          msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj "/p:SolutionDir=$slnDir" /p:Configuration=Release /p:Platform=AnyCPU /p:Prefer32Bit=false /verbosity:minimal
 
       - name: Verify build output
         shell: pwsh
         run: |
           $exe = "Saplin.CPDT.WPF\bin\Release\CPDT.exe"
-          if (-not (Test-Path $exe)) {
-            Write-Host "::error::CPDT.exe not found"
-            exit 1
-          }
-          $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-          Write-Host "CPDT.exe — $size MB (loose-DLL build, no Costura)"
-          $dlls = (Get-ChildItem "Saplin.CPDT.WPF\bin\Release" -Filter "*.dll").Count
-          Write-Host "$dlls DLL files found alongside CPDT.exe"
+          if (-not (Test-Path $exe)) { Write-Host "::error::CPDT.exe not found"; exit 1 }
+          Write-Host "CPDT.exe found — $('{0:N1}' -f ((Get-Item $exe).Length/1MB)) MB"
+          Write-Host "DLL count: $((Get-ChildItem 'Saplin.CPDT.WPF\bin\Release' -Filter '*.dll').Count)"
 
-      - name: Package entire Release folder as ZIP
+      - name: Package Release folder as ZIP
         shell: pwsh
         run: |
           Compress-Archive -Path "Saplin.CPDT.WPF\bin\Release\*" -DestinationPath "CPDT-Windows.zip" -Force
-          $size = [math]::Round((Get-Item "CPDT-Windows.zip").Length / 1MB, 1)
-          Write-Host "CPDT-Windows.zip created: $size MB"
+          Write-Host "CPDT-Windows.zip: $('{0:N1}' -f ((Get-Item 'CPDT-Windows.zip').Length/1MB)) MB"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
