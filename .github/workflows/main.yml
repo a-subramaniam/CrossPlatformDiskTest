@@ -1,6 +1,5 @@
 name: Build CPDT — Telemetry-Patched
 
-# Run manually from the Actions tab whenever you need a fresh build
 on:
   workflow_dispatch:
     inputs:
@@ -13,7 +12,7 @@ jobs:
   # ── macOS build ────────────────────────────────────────────────────────────
   build-macos:
     name: macOS — Xamarin.Mac
-    runs-on: macos-13        # macos-14 dropped Xamarin; stay on 13
+    runs-on: macos-13
 
     steps:
       - name: Checkout source
@@ -88,8 +87,6 @@ jobs:
       - name: Disable Costura (ship loose DLLs for compatibility)
         shell: pwsh
         run: |
-          # Replace FodyWeavers.xml with an empty config — file must exist but
-          # omitting <Costura/> means Fody runs without bundling any DLLs.
           $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
           Write-Host "Costura disabled — DLLs will be loose in output folder"
