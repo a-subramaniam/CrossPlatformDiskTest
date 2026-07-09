@@ -88,6 +88,8 @@ jobs:
       - name: Disable Costura (ship loose DLLs for compatibility)
         shell: pwsh
         run: |
+          # Replace FodyWeavers.xml with an empty config — file must exist but
+          # omitting <Costura/> means Fody runs without bundling any DLLs.
           $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
           Write-Host "Costura disabled — DLLs will be loose in output folder"
@@ -97,7 +99,7 @@ jobs:
         shell: pwsh
         run: |
           $f="Saplin.CPDT.WPF\packages.config"; $c=(Get-Content $f -Raw) -replace 'id="SkiaSharp" version="1\.60\.3"','id="SkiaSharp" version="2.88.8"' -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views" version="2.88.8"' -replace 'id="SkiaSharp\.Views\.Forms" version="1\.60\.3"','id="SkiaSharp.Views.Forms" version="2.88.8"'; Set-Content $f $c; Write-Host "Patched $f"
-          $f="Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"; $c=(Get-Content $f -Raw) -replace 'SkiaSharp\.Views\.Forms\.1\.60\.3','SkiaSharp.Views.Forms.2.88.8' -replace 'SkiaSharp\.Views\.1\.60\.3','SkiaSharp.Views.2.88.8' -replace 'SkiaSharp\.1\.60\.3','SkiaSharp.2.88.8' -replace 'SkiaSharp, Version=1\.60\.0\.0','SkiaSharp, Version=2.88.0.0' -replace '<Error Condition="[^"]*SkiaSharp[^"]*"[^>]*/>', ''; Set-Content $f $c; Write-Host "Patched $f"
+          $f="Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"; $c=(Get-Content $f -Raw) -replace 'SkiaSharp\.Views\.Forms\.1\.60\.3','SkiaSharp.Views.Forms.2.88.8' -replace 'SkiaSharp\.Views\.1\.60\.3','SkiaSharp.Views.2.88.8' -replace 'SkiaSharp\.1\.60\.3','SkiaSharp.2.88.8' -replace 'SkiaSharp, Version=1\.60\.0\.0','SkiaSharp, Version=2.88.0.0' -replace '<Error Condition="[^"]*SkiaSharp[^"]*"[^>]*/>', '' -replace '(packages\\SkiaSharp[^\\]*)\\lib\\net45\\','$1\lib\netstandard2.0\'; Set-Content $f $c; Write-Host "Patched $f"
           $f="Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj"; $c=(Get-Content $f -Raw) -replace '"SkiaSharp\.Views\.Forms" Version="1\.60\.3"','"SkiaSharp.Views.Forms" Version="2.88.8"' -replace '"SkiaSharp\.Views" Version="1\.60\.3"','"SkiaSharp.Views" Version="2.88.8"' -replace '"SkiaSharp" Version="1\.60\.3"','"SkiaSharp" Version="2.88.8"'; Set-Content $f $c; Write-Host "Patched $f"
           Write-Host "SkiaSharp upgraded to 2.88.8"
 
