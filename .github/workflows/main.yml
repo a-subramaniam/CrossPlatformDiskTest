@@ -1,28 +1,137 @@
-name: Build CPDT — macOS
+name: Build CPDT — Telemetry-Patched
 
+# Run manually from the Actions tab whenever you need a fresh build
 on:
   workflow_dispatch:
+    inputs:
+      notes:
+        description: 'Build notes (optional)'
+        required: false
+        default: ''
 
 jobs:
+  # ── macOS build ────────────────────────────────────────────────────────────
   build-macos:
-    name: macOS
-    runs-on: macos-13
+    name: macOS — Xamarin.Mac
+    runs-on: macos-13        # macos-14 dropped Xamarin; stay on 13
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
+
       - name: Add Mono to PATH
         run: echo "/Library/Frameworks/Mono.framework/Versions/Current/Commands" >> $GITHUB_PATH
+
       - name: Apply telemetry patch
         run: |
-          sed -i '' 's|public const string cpdt_web_url = @"https://maxim-saplin.github.io/cpdt_results/";|public const string cpdt_web_url = @"";|' Saplin.CPDT.UICore/ViewModels/ResultsDbViewModel.cs
-      - name: Restore packages
+          TARGET="Saplin.CPDT.UICore/ViewModels/ResultsDbViewModel.cs"
+          sed -i '' \
+            's|public const string cpdt_web_url = @"https://maxim-saplin.github.io/cpdt_results/";|public const string cpdt_web_url = @""; // telemetry disabled|' \
+            "$TARGET"
+          grep -q 'cpdt_web_url = @""' "$TARGET" || { echo "::error::Patch failed"; exit 1; }
+          echo "Patch applied:"
+          grep 'cpdt_web_url' "$TARGET"
+
+      - name: Restore NuGet packages
         run: msbuild CrossPlatformDiskTest.sln /t:Restore /verbosity:minimal
-      - name: Build
-        run: msbuild Saplin.CPDT.Mac/Saplin.CPDT.Mac.csproj /p:Configuration=Release /p:Platform=AnyCPU /verbosity:minimal
-      - name: List build output
-        run: ls -la Saplin.CPDT.Mac/bin/Release/
-      - name: Package
-        run: cd Saplin.CPDT.Mac/bin/Release && zip -r "$GITHUB_WORKSPACE/CPDT-macOS.zip" CPDT.app
-      - uses: actions/upload-artifact@v4
+
+      - name: Build Release
+        run: |
+          msbuild Saplin.CPDT.Mac/Saplin.CPDT.Mac.csproj \
+            /p:Configuration=Release \
+            /p:Platform=AnyCPU \
+            /verbosity:minimal
+
+      - name: Verify build output
+        run: |
+          ls -la Saplin.CPDT.Mac/bin/Release/
+          test -d "Saplin.CPDT.Mac/bin/Release/CPDT.app" || { echo "::error::CPDT.app not found"; exit 1; }
+
+      - name: Package .app as zip
+        run: |
+          cd Saplin.CPDT.Mac/bin/Release
+          zip -r "$GITHUB_WORKSPACE/CPDT-macOS.zip" CPDT.app
+          echo "Archive size: $(du -sh $GITHUB_WORKSPACE/CPDT-macOS.zip | cut -f1)"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
         with:
           name: CPDT-macOS
           path: CPDT-macOS.zip
+          retention-days: 30
+
+  # ── Windows build ──────────────────────────────────────────────────────────
+  build-windows:
+    name: Windows — .NET Framework 4.8
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Apply telemetry patch
+        shell: pwsh
+        run: |
+          $target = "Saplin.CPDT.UICore\ViewModels\ResultsDbViewModel.cs"
+          $content = Get-Content $target -Raw
+          $patched = $content -replace `
+            'public const string cpdt_web_url = @"https://maxim-saplin\.github\.io/cpdt_results/";', `
+            'public const string cpdt_web_url = @""; // telemetry disabled'
+          if ($patched -eq $content) {
+            Write-Host "::error::Patch failed — URL not found in source"
+            exit 1
+          }
+          Set-Content -Path $target -Value $patched -Encoding UTF8
+          Write-Host "Patch applied:"
+          Select-String 'cpdt_web_url' $target
+
+      - name: Disable Costura (ship loose DLLs for compatibility)
+        shell: pwsh
+        run: |
+          # Removing FodyWeavers.xml prevents Costura from bundling DLLs into the exe.
+          # Loose DLLs in a ZIP are more compatible across Windows 11 configurations.
+          Remove-Item "Saplin.CPDT.WPF\FodyWeavers.xml" -Force -ErrorAction SilentlyContinue
+          Remove-Item "Saplin.CPDT.WPF\FodyWeavers.xsd" -Force -ErrorAction SilentlyContinue
+          Write-Host "Costura disabled — DLLs will be loose in output folder"
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          $slnDir = (Get-Location).Path + "\"
+          msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj /restore /p:RestorePackagesConfig=true `
+            "/p:SolutionDir=$slnDir" /p:Configuration=Release /p:Platform=AnyCPU `
+            /p:Prefer32Bit=false /verbosity:minimal
+
+      - name: List build output
+        shell: pwsh
+        run: Get-ChildItem "Saplin.CPDT.WPF\bin\Release" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          $exe = "Saplin.CPDT.WPF\bin\Release\CPDT.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "::error::CPDT.exe not found"
+            exit 1
+          }
+          $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+          Write-Host "CPDT.exe — $size MB (loose-DLL build, no Costura)"
+          $dlls = (Get-ChildItem "Saplin.CPDT.WPF\bin\Release" -Filter "*.dll").Count
+          Write-Host "$dlls DLL files found alongside CPDT.exe"
+
+      - name: Package entire Release folder as ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "Saplin.CPDT.WPF\bin\Release\*" -DestinationPath "CPDT-Windows.zip" -Force
+          $size = [math]::Round((Get-Item "CPDT-Windows.zip").Length / 1MB, 1)
+          Write-Host "CPDT-Windows.zip created: $size MB"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CPDT-Windows
+          path: CPDT-Windows.zip
+          retention-days: 30
