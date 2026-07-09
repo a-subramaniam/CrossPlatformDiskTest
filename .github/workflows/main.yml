@@ -1,5 +1,6 @@
 name: Build CPDT — Telemetry-Patched
 
+# Run manually from the Actions tab whenever you need a fresh build
 on:
   workflow_dispatch:
     inputs:
@@ -12,7 +13,7 @@ jobs:
   # ── macOS build ────────────────────────────────────────────────────────────
   build-macos:
     name: macOS — Xamarin.Mac
-    runs-on: macos-13
+    runs-on: macos-13        # macos-14 dropped Xamarin; stay on 13
 
     steps:
       - name: Checkout source
@@ -25,7 +26,7 @@ jobs:
         run: |
           TARGET="Saplin.CPDT.UICore/ViewModels/ResultsDbViewModel.cs"
           sed -i '' \
-            's|public const string cpdt_web_url = @"https://maxim-saplin.github.io/cpdt_results/";|publ= @""; // telemetry disabled|' \
+            's|public const string cpdt_web_url = @"https://maxim-saplin.github.io/cpdt_results/";|public const string cpdt_web_url = @""; // telemetry disabled|' \
             "$TARGET"
           grep -q 'cpdt_web_url = @""' "$TARGET" || { echo "::error::Patch failed"; exit 1; }
           echo "Patch applied:"
@@ -87,7 +88,9 @@ jobs:
       - name: Disable Costura (ship loose DLLs for compatibility)
         shell: pwsh
         run: |
-          $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSceSchemaLocation="FodyWeavers.xsd"></Weavers>'
+          # Replace FodyWeavers.xml with an empty config — file must exist but
+          # omitting <Costura/> means Fody runs without bundling any DLLs.
+          $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
           Write-Host "Costura disabled — DLLs will be loose in output folder"
           Get-Content "Saplin.CPDT.WPF\FodyWeavers.xml"
@@ -95,12 +98,9 @@ jobs:
       - name: Upgrade SkiaSharp to 2.88.8 (fixes MissingMethodException)
         shell: pwsh
         run: |
-          $f="Saplin.CPDT.WPF\packages.config"; $c=(Get-Content $f -Raw) -replace 'id="SkiaSharp" versi" version="2.88.8"' -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views"version="2.88.8"' -replace 'id="SkiaSharp\.Views\.Forms" version="1\.60\.3"','id="SkiaSharp.Views.Forms" version="2.88.8"'; Set-Content $f $c; Write-Host "Patched $f"
-          $f="Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"; $c=(Get-Content $f -Raw) -replace 'SkiaSharp\.Viarp.Views.Forms.2.88.8' -replace 'SkiaSharp\.Views\.1\.60\.3','SkiaSharp.Views.2.88.8' -replace'SkiaSharp\.1\.60\.3','SkiaSharp.2.88.8' -replace 'SkiaSharp, Version=1\.60\.0\.0','SkiaSharp, Version=2.88.0.0' -replace 'SkiaSharp\.Views\.Desktop, Version=1\.60\.0\.0','SkiaSharp.Views.Desktop, Version=2.88.0.0' -replace
-'SkiaSharp\.Views\.Forms, Version=1\.60\.0\.0','SkiaSharp.Views.Forms, Version=2.88.0.0' -replace 'Skia.60\.0\.0','SkiaSharp.Views.WPF, Version=2.88.0.0' -replace '<ErrorCondition="[^"]*SkiaSharp[^"]*"[^>]*/>', '' -replace '(packages\\SkiaSharp\.\d[^\\]*)\\lib\\net45\\','$1\lib\netstandard2.0\' -replace '(packages\\SkiaSharp\.Views\.\d[^\\]*)\\lib\\net45\\','$1\lib\net461\' -replace
-'(packages\\SkiaSharp\.Views\.Forms\.\d[^\\]*)\\lib\\netstandard1\.3\\','$1\lib\netstandard2.0\'; Set-Cched $f"
-          $f="Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj"; $c=(Get-Content $f -Raw) -replace '"SkiaSharp\.Views\.Forms" Version="1\.60\.3"','"SkiaSharp.Views.Forms" Version="2.88.8"' -replace '"SkiaSharp\.Views"
-Version="1\.60\.3"','"SkiaSharp.Views" Version="2.88.8"' -replace '"SkiaSharp" Version="1\.60\.3"','"Sket-Content $f $c; Write-Host "Patched $f"
+          $f="Saplin.CPDT.WPF\packages.config"; $c=(Get-Content $f -Raw) -replace 'id="SkiaSharp" version="1\.60\.3"','id="SkiaSharp" version="2.88.8"' -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views" version="2.88.8"' -replace 'id="SkiaSharp\.Views\.Forms" version="1\.60\.3"','id="SkiaSharp.Views.Forms" version="2.88.8"'; Set-Content $f $c; Write-Host "Patched $f"
+          $f="Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"; $c=(Get-Content $f -Raw) -replace 'SkiaSharp\.Views\.Forms\.1\.60\.3','SkiaSharp.Views.Forms.2.88.8' -replace 'SkiaSharp\.Views\.1\.60\.3','SkiaSharp.Views.2.88.8' -replace 'SkiaSharp\.1\.60\.3','SkiaSharp.2.88.8' -replace 'SkiaSharp, Version=1\.60\.0\.0','SkiaSharp, Version=2.88.0.0' -replace 'SkiaSharp\.Views\.Desktop, Version=1\.60\.0\.0','SkiaSharp.Views.Desktop, Version=2.88.0.0' -replace 'SkiaSharp\.Views\.Forms, Version=1\.60\.0\.0','SkiaSharp.Views.Forms, Version=2.88.0.0' -replace 'SkiaSharp\.Views\.WPF, Version=1\.60\.0\.0','SkiaSharp.Views.WPF, Version=2.88.0.0' -replace '<Error Condition="[^"]*SkiaSharp[^"]*"[^>]*/>', '' -replace '(packages\\SkiaSharp\.\d[^\\]*)\\lib\\net45\\','$1\lib\netstandard2.0\' -replace '(packages\\SkiaSharp\.Views\.\d[^\\]*)\\lib\\net45\\','$1\lib\net461\' -replace '(packages\\SkiaSharp\.Views\.Forms\.\d[^\\]*)\\lib\\netstandard1\.3\\','$1\lib\netstandard2.0\'; Set-Content $f $c; Write-Host "Patched $f"
+          $f="Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj"; $c=(Get-Content $f -Raw) -replace '"SkiaSharp\.Views\.Forms" Version="1\.60\.3"','"SkiaSharp.Views.Forms" Version="2.88.8"' -replace '"SkiaSharp\.Views" Version="1\.60\.3"','"SkiaSharp.Views" Version="2.88.8"' -replace '"SkiaSharp" Version="1\.60\.3"','"SkiaSharp" Version="2.88.8"'; Set-Content $f $c; Write-Host "Patched $f"
           Write-Host "SkiaSharp upgraded to 2.88.8"
 
       - name: Setup MSBuild
