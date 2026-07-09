@@ -26,7 +26,7 @@ jobs:
         run: |
           TARGET="Saplin.CPDT.UICore/ViewModels/ResultsDbViewModel.cs"
           sed -i '' \
-            's|public const string cpdt_web_url = @"https://maxim-saplin.github.io/cpdt_results/";|public const string cpdt_web_url = @""; // telemetry disabled|' \
+            's|public const string cpdt_web_url = @"https://maxim-saplin.github.io/cpdt_results/";|publ= @""; // telemetry disabled|' \
             "$TARGET"
           grep -q 'cpdt_web_url = @""' "$TARGET" || { echo "::error::Patch failed"; exit 1; }
           echo "Patch applied:"
@@ -90,10 +90,23 @@ jobs:
         run: |
           # Replace FodyWeavers.xml with an empty config — file must exist but
           # omitting <Costura/> means Fody runs without bundling any DLLs.
-          $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd"></Weavers>'
+          $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
           Write-Host "Costura disabled — DLLs will be loose in output folder"
           Get-Content "Saplin.CPDT.WPF\FodyWeavers.xml"
+
+      - name: Upgrade SkiaSharp to 2.88.8 (fixes MissingMethodException)
+        shell: pwsh
+        run: |
+          # CPDT.Extra.dll in References\ was compiled against SkiaSharp 2.88.0.0,
+          # but packages.config pins SkiaSharp to 1.60.3. At runtime the version
+          # mismatch triggers MissingMethodException in App.InitializeComponent().
+          # nuget update patches packages.config AND .csproj HintPaths for every
+          # project in the solution.
+          nuget update CrossPlatformDiskTest.sln -Id SkiaSharp -Version 2.88.8 -NonInteractive
+          nuget update CrossPlatformDiskTest.sln -Id SkiaSharp.Views -Version 2.88.8 -NonInteractive
+          nuget update CrossPlatformDiskTest.sln -Id SkiaSharp.Views.Forms -Version 2.88.8 -NonInteractive
+          Write-Host "SkiaSharp upgraded to 2.88.8 across all projects"
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
