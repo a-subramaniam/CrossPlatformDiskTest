@@ -88,11 +88,12 @@ jobs:
       - name: Disable Costura (ship loose DLLs for compatibility)
         shell: pwsh
         run: |
-          # Removing FodyWeavers.xml prevents Costura from bundling DLLs into the exe.
-          # Loose DLLs in a ZIP are more compatible across Windows 11 configurations.
-          Remove-Item "Saplin.CPDT.WPF\FodyWeavers.xml" -Force -ErrorAction SilentlyContinue
-          Remove-Item "Saplin.CPDT.WPF\FodyWeavers.xsd" -Force -ErrorAction SilentlyContinue
+          # Replace FodyWeavers.xml with an empty config — file must exist but
+          # omitting <Costura/> means Fody runs without bundling any DLLs.
+          $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd"></Weavers>'
+          Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
           Write-Host "Costura disabled — DLLs will be loose in output folder"
+          Get-Content "Saplin.CPDT.WPF\FodyWeavers.xml"
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
