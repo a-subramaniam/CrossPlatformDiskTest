@@ -80,6 +80,17 @@ jobs:
           $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
 
+      - name: Align UICore packages with WPF host (XF 4.5, SkiaSharp 1.60.3)
+        shell: pwsh
+        run: |
+          $f = "Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj"
+          $c = Get-Content $f -Raw
+          $c = $c -replace '"Xamarin\.Forms" Version="[^"]*"', '"Xamarin.Forms" Version="4.5.0.530"'
+          $c = $c -replace '"SkiaSharp\.Views\.Forms" Version="[^"]*"', '"SkiaSharp.Views.Forms" Version="1.60.3"'
+          Set-Content $f $c
+          Write-Host "UICore aligned: XF 4.5.0.530 + SkiaSharp.Views.Forms 1.60.3"
+          Select-String "Xamarin.Forms|SkiaSharp" $f | ForEach-Object { Write-Host $_.Line }
+
       - name: Remove CPDT.Extra.dll reference
         shell: pwsh
         run: |
