@@ -3,12 +3,9 @@ workflows:
     name: CPDT — macOS Xamarin.Mac
     instance_type: mac_mini_m1
     scripts:
-      - name: Add Mono to PATH
-        script: |
-          echo "/Library/Frameworks/Mono.framework/Versions/Current/Commands" >> $CM_PATH
-
       - name: Verify toolchain
         script: |
+          export PATH="/Library/Frameworks/Mono.framework/Versions/Current/Commands:$PATH"
           msbuild --version
           ls /Library/Frameworks/Xamarin.Mac.framework/Versions/Current/
 
@@ -22,10 +19,13 @@ workflows:
           echo "Patch applied:"; grep 'cpdt_web_url' "$TARGET"
 
       - name: Restore NuGet packages
-        script: msbuild CrossPlatformDiskTest.sln /t:Restore /verbosity:minimal
+        script: |
+          export PATH="/Library/Frameworks/Mono.framework/Versions/Current/Commands:$PATH"
+          msbuild CrossPlatformDiskTest.sln /t:Restore /verbosity:minimal
 
       - name: Build Release
         script: |
+          export PATH="/Library/Frameworks/Mono.framework/Versions/Current/Commands:$PATH"
           msbuild Saplin.CPDT.Mac/Saplin.CPDT.Mac.csproj \
             /p:Configuration=Release /p:Platform=AnyCPU /verbosity:minimal
 
