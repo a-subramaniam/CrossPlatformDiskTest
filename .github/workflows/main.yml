@@ -89,6 +89,13 @@ jobs:
           $c=$c -replace 'id="SkiaSharp" version="1\.60\.3"','id="SkiaSharp" version="2.88.8"'
           $c=$c -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views" version="2.88.8"'
           # SkiaSharp.Views.Forms intentionally kept at 1.60.3 — 2.88.x triggers MC1000
+          # Add SkiaSharp.Views.Desktop — in 2.88.x, WPF DLL moved to this separate package
+          if ($c -notmatch 'id="SkiaSharp\.Views\.Desktop"') {
+            $tfm = if ($c -match 'targetFramework="([^"]+)"') { $Matches[1] } else { 'net48' }
+            $pkg = "  <package id=`"SkiaSharp.Views.Desktop`" version=`"2.88.8`" targetFramework=`"$tfm`" />"
+            $c = $c -replace '(  <package id="SkiaSharp\.Views" [^/]*/?>)', "`$1`n$pkg"
+            Write-Host "Added SkiaSharp.Views.Desktop to packages.config"
+          }
           Set-Content $f $c; Write-Host "Patched packages.config:"; Get-Content $f | Select-String "SkiaSharp"
 
           # csproj HintPath folder names: upgrade core + Views only
@@ -127,52 +134,58 @@ jobs:
           Get-ChildItem "packages" -Recurse -Filter "SkiaSharp*.dll" |
             Select-Object -ExpandProperty FullName | Sort-Object
 
-      - name: Fix SkiaSharp core+Views HintPaths dynamically
+      - name: Fix SkiaSharp HintPaths + add Desktop.Common reference
         shell: pwsh
         run: |
           $root = (Get-Location).Path
           $f = "Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"
           $c = Get-Content $f -Raw
 
-          # Only fix core and Views DLLs — leave SkiaSharp.Views.Forms.dll at 1.60.3 path.
-          # Forms 2.88.x triggers MC1000 (has hidden Android dependency); 1.60.3 does not.
-          $dlls = @("SkiaSharp.dll", "SkiaSharp.Views.Desktop.dll", "SkiaSharp.Views.WPF.dll")
-          foreach ($dll in $dlls) {
-            $found = Get-ChildItem "packages" -Recurse -Filter $dll |
+          function Find-BestDll($name) {
+            Get-ChildItem "packages" -Recurse -Filter $name |
               Where-Object {
                 $p = $_.FullName
-                $p -notmatch "\\ref\\" -and
-                $p -notmatch "\\runtimes\\" -and
-                $p -notmatch "\\MonoAndroid" -and
-                $p -notmatch "\\Xamarin\." -and
-                $p -notmatch "\\Tizen" -and
-                $p -notmatch "\\monoandroid" -and
-                $p -notmatch "\\net6" -and
-                $p -notmatch "\\net7" -and
-                $p -notmatch "\\net8"
+                $p -notmatch "\\ref\\" -and $p -notmatch "\\runtimes\\" -and
+                $p -notmatch "\\MonoAndroid" -and $p -notmatch "\\Xamarin\." -and
+                $p -notmatch "\\Tizen" -and $p -notmatch "\\monoandroid" -and
+                $p -notmatch "\\net6" -and $p -notmatch "\\net7" -and $p -notmatch "\\net8"
               } |
               Sort-Object {
                 $p = $_.FullName
-                if     ($p -match "\\net45\\")            { 0 }
-                elseif ($p -match "\\net461\\")           { 1 }
-                elseif ($p -match "\\net4")               { 2 }
-                elseif ($p -match "\\netstandard2\.0\\")  { 3 }
-                elseif ($p -match "\\netstandard")        { 4 }
-                else                                      { 5 }
-              } |
-              Select-Object -First 1
+                if ($p -match "\\net45\\") { 0 } elseif ($p -match "\\net461\\") { 1 }
+                elseif ($p -match "\\net4") { 2 } elseif ($p -match "\\netstandard2\.0\\") { 3 }
+                else { 4 }
+              } | Select-Object -First 1
+          }
 
+          # Update HintPaths for existing references
+          foreach ($dll in @("SkiaSharp.dll","SkiaSharp.Views.Desktop.dll","SkiaSharp.Views.WPF.dll")) {
+            $found = Find-BestDll $dll
             if ($found) {
-              $relPath = $found.FullName.Substring($root.Length + 1)
-              $hintPath = "..\" + $relPath
-              Write-Host "FOUND: $dll -> $hintPath"
-              $c = $c -replace "\.\.\\packages\\[^<]*\\$([regex]::Escape($dll))", $hintPath
+              $hint = "..\" + $found.FullName.Substring($root.Length + 1)
+              Write-Host "FOUND: $dll -> $hint"
+              $c = $c -replace "\.\.\\packages\\[^<]*\\$([regex]::Escape($dll))", $hint
             } else {
-              Write-Host "WARNING: $dll not found"
+              Write-Host "NOT FOUND: $dll (package may not include .NET Framework variant)"
             }
           }
+
+          # Add SkiaSharp.Views.Desktop.Common.dll — new assembly in 2.88.x (type-forwarded from Desktop)
+          $common = Find-BestDll "SkiaSharp.Views.Desktop.Common.dll"
+          if ($common) {
+            $hint = "..\" + $common.FullName.Substring($root.Length + 1)
+            Write-Host "Adding NEW ref: SkiaSharp.Views.Desktop.Common -> $hint"
+            if ($c -notmatch "SkiaSharp\.Views\.Desktop\.Common") {
+              $newRef = "    <Reference Include=`"SkiaSharp.Views.Desktop.Common`">`n      <HintPath>$hint</HintPath>`n    </Reference>`n"
+              $c = $c.Replace('    <Reference Include="SkiaSharp.Views.WPF">', $newRef + '    <Reference Include="SkiaSharp.Views.WPF">')
+              Write-Host "Reference added"
+            }
+          } else {
+            Write-Host "NOT FOUND: SkiaSharp.Views.Desktop.Common.dll"
+          }
+
           Set-Content $f $c
-          Write-Host "--- All HintPaths after update ---"
+          Write-Host "--- HintPaths after update ---"
           Select-String "HintPath" $f | Select-Object -ExpandProperty Line
 
       - name: Add SkiaSharp binding redirect (Forms 1.60 -> core 2.88 at runtime)
