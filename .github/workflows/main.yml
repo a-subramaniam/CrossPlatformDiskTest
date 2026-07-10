@@ -17,7 +17,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Add Mono to PATHå
+      - name: Add Mono to PATH
         run: echo "/Library/Frameworks/Mono.framework/Versions/Current/Commands" >> $GITHUB_PATH
 
       - name: Apply telemetry patch
@@ -80,30 +80,35 @@ jobs:
           $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
 
-      - name: Upgrade SkiaSharp version numbers to 2.88.8
+      - name: Upgrade SkiaSharp core + Views to 2.88.8 (keep Views.Forms at 1.60.3)
         shell: pwsh
         run: |
-          # packages.config: upgrade all SkiaSharp packages
+          # packages.config: upgrade core + Views only; Forms stays at 1.60.3
           $f="Saplin.CPDT.WPF\packages.config"
-          $c=(Get-Content $f -Raw) -replace 'id="SkiaSharp" version="1\.60\.3"','id="SkiaSharp" version="2.88.8"' -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views" version="2.88.8"' -replace 'id="SkiaSharp\.Views\.Forms" version="1\.60\.3"','id="SkiaSharp.Views.Forms" version="2.88.8"'
-          Set-Content $f $c; Write-Host "Patched packages.config"
+          $c=(Get-Content $f -Raw)
+          $c=$c -replace 'id="SkiaSharp" version="1\.60\.3"','id="SkiaSharp" version="2.88.8"'
+          $c=$c -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views" version="2.88.8"'
+          # SkiaSharp.Views.Forms intentionally kept at 1.60.3 — 2.88.x triggers MC1000
+          Set-Content $f $c; Write-Host "Patched packages.config:"; Get-Content $f | Select-String "SkiaSharp"
 
-          # csproj: update version numbers and assembly versions only (paths fixed later)
+          # csproj HintPath folder names: upgrade core + Views only
           $f="Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"
           $c=(Get-Content $f -Raw)
-          $c=$c -replace 'SkiaSharp\.Views\.Forms\.1\.60\.3','SkiaSharp.Views.Forms.2.88.8'
-          $c=$c -replace 'SkiaSharp\.Views\.1\.60\.3','SkiaSharp.Views.2.88.8'
-          $c=$c -replace 'SkiaSharp\.1\.60\.3','SkiaSharp.2.88.8'
+          $c=$c -replace 'SkiaSharp\.Views\.1\.60\.3','SkiaSharp.Views.2.88.8'  # Views (not Forms)
+          $c=$c -replace 'SkiaSharp\.1\.60\.3','SkiaSharp.2.88.8'               # core only (no Views. prefix)
+          # Assembly version: upgrade core + Views; leave Forms at 1.60.0.0
           $c=$c -replace 'SkiaSharp, Version=1\.60\.0\.0','SkiaSharp, Version=2.88.0.0'
           $c=$c -replace 'SkiaSharp\.Views\.Desktop, Version=1\.60\.0\.0','SkiaSharp.Views.Desktop, Version=2.88.0.0'
-          $c=$c -replace 'SkiaSharp\.Views\.Forms, Version=1\.60\.0\.0','SkiaSharp.Views.Forms, Version=2.88.0.0'
           $c=$c -replace 'SkiaSharp\.Views\.WPF, Version=1\.60\.0\.0','SkiaSharp.Views.WPF, Version=2.88.0.0'
           $c=$c -replace '<Error Condition="[^"]*SkiaSharp[^"]*"[^>]*/>', ''
-          Set-Content $f $c; Write-Host "Patched Saplin.CPDT.WPF.csproj version numbers"
+          Set-Content $f $c; Write-Host "Patched Saplin.CPDT.WPF.csproj"
 
-          # UICore PackageReference
+          # UICore PackageReference: upgrade core + Views; keep Forms at 1.60.3
           $f="Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj"
-          $c=(Get-Content $f -Raw) -replace '"SkiaSharp\.Views\.Forms" Version="1\.60\.3"','"SkiaSharp.Views.Forms" Version="2.88.8"' -replace '"SkiaSharp\.Views" Version="1\.60\.3"','"SkiaSharp.Views" Version="2.88.8"' -replace '"SkiaSharp" Version="1\.60\.3"','"SkiaSharp" Version="2.88.8"'
+          $c=(Get-Content $f -Raw)
+          $c=$c -replace '"SkiaSharp\.Views" Version="1\.60\.3"','"SkiaSharp.Views" Version="2.88.8"'
+          $c=$c -replace '"SkiaSharp" Version="1\.60\.3"','"SkiaSharp" Version="2.88.8"'
+          # SkiaSharp.Views.Forms PackageReference intentionally unchanged
           Set-Content $f $c; Write-Host "Patched Saplin.CPDT.UICore.csproj"
 
       - name: Setup MSBuild
@@ -115,32 +120,90 @@ jobs:
           $slnDir = (Get-Location).Path + "\"
           msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj /t:Restore /p:RestorePackagesConfig=true "/p:SolutionDir=$slnDir" /verbosity:minimal
 
-      - name: Fix SkiaSharp HintPaths dynamically
+      - name: List SkiaSharp DLLs in packages (diagnostic)
+        shell: pwsh
+        run: |
+          Write-Host "=== All SkiaSharp DLLs found after restore ==="
+          Get-ChildItem "packages" -Recurse -Filter "SkiaSharp*.dll" |
+            Select-Object -ExpandProperty FullName | Sort-Object
+
+      - name: Fix SkiaSharp core+Views HintPaths dynamically
         shell: pwsh
         run: |
           $root = (Get-Location).Path
           $f = "Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"
           $c = Get-Content $f -Raw
 
-          # For each DLL name, find its actual location in the 2.88.8 packages
-          $dlls = @("SkiaSharp.dll", "SkiaSharp.Views.Desktop.dll", "SkiaSharp.Views.WPF.dll", "SkiaSharp.Views.Forms.dll")
+          # Only fix core and Views DLLs — leave SkiaSharp.Views.Forms.dll at 1.60.3 path.
+          # Forms 2.88.x triggers MC1000 (has hidden Android dependency); 1.60.3 does not.
+          $dlls = @("SkiaSharp.dll", "SkiaSharp.Views.Desktop.dll", "SkiaSharp.Views.WPF.dll")
           foreach ($dll in $dlls) {
             $found = Get-ChildItem "packages" -Recurse -Filter $dll |
-              Where-Object { $_.FullName -notmatch "\\ref\\" -and $_.FullName -notmatch "\\runtimes\\" } |
+              Where-Object {
+                $p = $_.FullName
+                $p -notmatch "\\ref\\" -and
+                $p -notmatch "\\runtimes\\" -and
+                $p -notmatch "\\MonoAndroid" -and
+                $p -notmatch "\\Xamarin\." -and
+                $p -notmatch "\\Tizen" -and
+                $p -notmatch "\\monoandroid" -and
+                $p -notmatch "\\net6" -and
+                $p -notmatch "\\net7" -and
+                $p -notmatch "\\net8"
+              } |
+              Sort-Object {
+                $p = $_.FullName
+                if     ($p -match "\\net45\\")            { 0 }
+                elseif ($p -match "\\net461\\")           { 1 }
+                elseif ($p -match "\\net4")               { 2 }
+                elseif ($p -match "\\netstandard2\.0\\")  { 3 }
+                elseif ($p -match "\\netstandard")        { 4 }
+                else                                      { 5 }
+              } |
               Select-Object -First 1
+
             if ($found) {
               $relPath = $found.FullName.Substring($root.Length + 1)
               $hintPath = "..\" + $relPath
-              Write-Host "Found $dll -> $hintPath"
-              # Replace existing HintPath for this DLL (any version/path)
+              Write-Host "FOUND: $dll -> $hintPath"
               $c = $c -replace "\.\.\\packages\\[^<]*\\$([regex]::Escape($dll))", $hintPath
             } else {
-              Write-Host "WARNING: $dll not found in packages folder"
+              Write-Host "WARNING: $dll not found"
             }
           }
           Set-Content $f $c
-          Write-Host "HintPaths updated. Verifying..."
-          Select-String "SkiaSharp" $f | Select-Object -ExpandProperty Line
+          Write-Host "--- All HintPaths after update ---"
+          Select-String "HintPath" $f | Select-Object -ExpandProperty Line
+
+      - name: Add SkiaSharp binding redirect (Forms 1.60 -> core 2.88 at runtime)
+        shell: pwsh
+        run: |
+          $configPath = "Saplin.CPDT.WPF\App.config"
+          $redirect = @'
+  <runtime>
+    <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">
+      <dependentAssembly>
+        <assemblyIdentity name="SkiaSharp" publicKeyToken="0738eb9f132ed756" culture="neutral" />
+        <bindingRedirect oldVersion="0.0.0.0-2.88.0.0" newVersion="2.88.0.0" />
+      </dependentAssembly>
+    </assemblyBinding>
+  </runtime>
+'@
+          if (Test-Path $configPath) {
+            $content = Get-Content $configPath -Raw
+            if ($content -notmatch '<runtime>') {
+              $content = $content -replace '</configuration>', "$redirect</configuration>"
+              Set-Content $configPath $content
+              Write-Host "Binding redirect added to existing App.config"
+            } else {
+              Write-Host "App.config already has <runtime> block, skipping"
+            }
+          } else {
+            $content = "<?xml version='1.0' encoding='utf-8'?>`r`n<configuration>$redirect</configuration>"
+            Set-Content $configPath $content
+            Write-Host "Created new App.config with binding redirect"
+          }
+          Get-Content $configPath
 
       - name: Build Release
         shell: pwsh
