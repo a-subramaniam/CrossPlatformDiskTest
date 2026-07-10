@@ -1,0 +1,43 @@
+workflows:
+  build-cpdt-macos:
+    name: CPDT — macOS Xamarin.Mac
+    instance_type: mac_mini_m1
+    triggering:
+      events:
+        - manual
+
+    scripts:
+      - name: Add Mono to PATH
+        script: |
+          echo "/Library/Frameworks/Mono.framework/Versions/Current/Commands" >> $CM_PATH
+
+      - name: Verify toolchain
+        script: |
+          msbuild --version
+          ls /Library/Frameworks/Xamarin.Mac.framework/Versions/Current/
+
+      - name: Apply telemetry patch
+        script: |
+          TARGET="Saplin.CPDT.UICore/ViewModels/ResultsDbViewModel.cs"
+          sed -i '' \
+            's|public const string cpdt_web_url = @"https://maxim-saplin.github.io/cpdt_results/";|public const string cpdt_web_url = @""; // telemetry disabled|' \
+            "$TARGET"
+          grep -q 'cpdt_web_url = @""' "$TARGET" || { echo "Patch failed"; exit 1; }
+          echo "Patch applied:"; grep 'cpdt_web_url' "$TARGET"
+
+      - name: Restore NuGet packages
+        script: msbuild CrossPlatformDiskTest.sln /t:Restore /verbosity:minimal
+
+      - name: Build Release
+        script: |
+          msbuild Saplin.CPDT.Mac/Saplin.CPDT.Mac.csproj \
+            /p:Configuration=Release /p:Platform=AnyCPU /verbosity:minimal
+
+      - name: Package .app
+        script: |
+          test -d "Saplin.CPDT.Mac/bin/Release/CPDT.app" || { echo "CPDT.app not found"; exit 1; }
+          cd Saplin.CPDT.Mac/bin/Release
+          zip -r "$CM_BUILD_DIR/CPDT-macOS.zip" CPDT.app
+
+    artifacts:
+      - CPDT-macOS.zip
