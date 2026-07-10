@@ -179,16 +179,7 @@ jobs:
         shell: pwsh
         run: |
           $configPath = "Saplin.CPDT.WPF\App.config"
-          $redirect = @'
-  <runtime>
-    <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">
-      <dependentAssembly>
-        <assemblyIdentity name="SkiaSharp" publicKeyToken="0738eb9f132ed756" culture="neutral" />
-        <bindingRedirect oldVersion="0.0.0.0-2.88.0.0" newVersion="2.88.0.0" />
-      </dependentAssembly>
-    </assemblyBinding>
-  </runtime>
-'@
+          $redirect = '<runtime><assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1"><dependentAssembly><assemblyIdentity name="SkiaSharp" publicKeyToken="0738eb9f132ed756" culture="neutral" /><bindingRedirect oldVersion="0.0.0.0-2.88.0.0" newVersion="2.88.0.0" /></dependentAssembly></assemblyBinding></runtime>'
           if (Test-Path $configPath) {
             $content = Get-Content $configPath -Raw
             if ($content -notmatch '<runtime>') {
@@ -199,8 +190,7 @@ jobs:
               Write-Host "App.config already has <runtime> block, skipping"
             }
           } else {
-            $content = "<?xml version='1.0' encoding='utf-8'?>`r`n<configuration>$redirect</configuration>"
-            Set-Content $configPath $content
+            Set-Content $configPath "<?xml version='1.0' encoding='utf-8'?><configuration>$redirect</configuration>"
             Write-Host "Created new App.config with binding redirect"
           }
           Get-Content $configPath
