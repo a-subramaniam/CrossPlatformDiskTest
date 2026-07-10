@@ -100,9 +100,32 @@ jobs:
       - name: Stub CPDT.Extra types in UICore
         shell: pwsh
         run: |
-          $stub = "using Xamarin.Forms;`n`nnamespace Saplin.CPDT.UICore.Controls`n{`n    public class BluredStackLayout : StackLayout { }`n    public class ExtendedLabel : Label { }`n}`n"
-          Set-Content "Saplin.CPDT.UICore\Controls\CpdtExtraStubs.cs" -Value $stub -Encoding UTF8
-          Write-Host "Created CpdtExtraStubs.cs"
+          $c  = "using System;`n"
+          $c += "using System.Windows.Input;`n"
+          $c += "using Xamarin.Forms;`n`n"
+          $c += "namespace Saplin.CPDT.UICore.Controls`n{`n"
+          $c += "    public class BluredStackLayout : StackLayout { }`n`n"
+          $c += "    public class ExtendedLabel : Label`n    {`n"
+          $c += "        public event EventHandler Clicked;`n"
+          $c += "        public void DoClick() { Clicked?.Invoke(this, EventArgs.Empty); }`n"
+          $c += "        public string Name { get; set; }`n"
+          $c += "        public bool ChangeCursorOnMouseHover { get; set; }`n"
+          $c += "        public static readonly BindableProperty CommandProperty =`n"
+          $c += "            BindableProperty.Create(nameof(Command), typeof(ICommand), typeof(ExtendedLabel), null);`n"
+          $c += "        public ICommand Command { get => (ICommand)GetValue(CommandProperty); set => SetValue(CommandProperty, value); }`n"
+          $c += "        public static readonly BindableProperty CommandParameterProperty =`n"
+          $c += "            BindableProperty.Create(nameof(CommandParameter), typeof(object), typeof(ExtendedLabel), null);`n"
+          $c += "        public object CommandParameter { get => GetValue(CommandParameterProperty); set => SetValue(CommandParameterProperty, value); }`n"
+          $c += "    }`n`n"
+          $c += "    public interface IShareViewAsImage { void Share(View view, bool darkMode, string title); }`n`n"
+          $c += "    public static class HistogramGraph`n    {`n"
+          $c += "        public static void GenerateCacheForIdAndBinsNumber(object result, int cacheId, int binsNumber) { }`n"
+          $c += "    }`n}`n"
+          Set-Content "Saplin.CPDT.UICore\Controls\CpdtExtraStubs.cs" -Value $c -Encoding UTF8
+          $r  = "namespace Saplin.CPDT.UICore`n{`n"
+          $r += "    public interface IShareFiles { void Share(string[] files, string mimeType, string title); }`n}`n"
+          Set-Content "Saplin.CPDT.UICore\CpdtExtraRootStubs.cs" -Value $r -Encoding UTF8
+          Write-Host "Created CpdtExtraStubs.cs and CpdtExtraRootStubs.cs"
 
       - name: Fix XAML namespace — remove assembly=CPDT.Extra
         shell: pwsh
