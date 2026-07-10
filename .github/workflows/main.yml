@@ -97,6 +97,25 @@ jobs:
             }
           }
 
+      - name: Stub CPDT.Extra types in UICore
+        shell: pwsh
+        run: |
+          $stub = "using Xamarin.Forms;`n`nnamespace Saplin.CPDT.UICore.Controls`n{`n    public class BluredStackLayout : StackLayout { }`n    public class ExtendedLabel : Label { }`n}`n"
+          Set-Content "Saplin.CPDT.UICore\Controls\CpdtExtraStubs.cs" -Value $stub -Encoding UTF8
+          Write-Host "Created CpdtExtraStubs.cs"
+
+      - name: Fix XAML namespace — remove assembly=CPDT.Extra
+        shell: pwsh
+        run: |
+          Get-ChildItem "Saplin.CPDT.UICore" -Recurse -Filter "*.xaml" | ForEach-Object {
+            $c = Get-Content $_.FullName -Raw
+            if ($c -match 'CPDT\.Extra') {
+              $c = $c -replace 'clr-namespace:Saplin\.CPDT\.UICore\.Controls;assembly=CPDT\.Extra', 'clr-namespace:Saplin.CPDT.UICore.Controls'
+              Set-Content $_.FullName $c -Encoding UTF8
+              Write-Host "Fixed: $($_.Name)"
+            }
+          }
+
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
