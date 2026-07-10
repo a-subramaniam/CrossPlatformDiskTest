@@ -11,7 +11,7 @@ on:
 jobs:
   build-macos:
     name: macOS — Xamarin.Mac
-    runs-on: [self-hosted, macOS]
+    runs-on: macos-13
 
     steps:
       - name: Checkout source
