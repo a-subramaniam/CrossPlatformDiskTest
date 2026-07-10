@@ -2,10 +2,6 @@ workflows:
   build-cpdt-macos:
     name: CPDT — macOS Xamarin.Mac
     instance_type: mac_mini_m1
-    triggering:
-      events:
-        - manual
-
     scripts:
       - name: Add Mono to PATH
         script: |
