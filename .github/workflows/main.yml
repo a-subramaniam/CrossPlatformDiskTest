@@ -80,43 +80,22 @@ jobs:
           $xml = '<?xml version="1.0" encoding="utf-8"?><Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd"></Weavers>'
           Set-Content -Path "Saplin.CPDT.WPF\FodyWeavers.xml" -Value $xml -Encoding UTF8
 
-      - name: Upgrade SkiaSharp core + Views to 2.88.8 (keep Views.Forms at 1.60.3)
+      - name: Remove CPDT.Extra.dll reference
         shell: pwsh
         run: |
-          # packages.config: upgrade core + Views only; Forms stays at 1.60.3
-          $f="Saplin.CPDT.WPF\packages.config"
-          $c=(Get-Content $f -Raw)
-          $c=$c -replace 'id="SkiaSharp" version="1\.60\.3"','id="SkiaSharp" version="2.88.8"'
-          $c=$c -replace 'id="SkiaSharp\.Views" version="1\.60\.3"','id="SkiaSharp.Views" version="2.88.8"'
-          # SkiaSharp.Views.Forms intentionally kept at 1.60.3 — 2.88.x triggers MC1000
-          # Add SkiaSharp.Views.Desktop — in 2.88.x, WPF DLL moved to this separate package
-          if ($c -notmatch 'id="SkiaSharp\.Views\.Desktop"') {
-            $tfm = if ($c -match 'targetFramework="([^"]+)"') { $Matches[1] } else { 'net48' }
-            $pkg = "  <package id=`"SkiaSharp.Views.Desktop`" version=`"2.88.8`" targetFramework=`"$tfm`" />"
-            $c = $c -replace '(  <package id="SkiaSharp\.Views" [^/]*/?>)', "`$1`n$pkg"
-            Write-Host "Added SkiaSharp.Views.Desktop to packages.config"
+          foreach ($proj in @("Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj","Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj")) {
+            if (-not (Test-Path $proj)) { continue }
+            $c = Get-Content $proj -Raw
+            $before = $c.Length
+            $c = [regex]::Replace($c, '\s*<Reference Include="CPDT\.Extra[^"]*">[\s\S]*?</Reference>', '')
+            $c = $c -replace '\s*<Reference Include="CPDT\.Extra[^"]*"\s*/>', ''
+            if ($c.Length -ne $before) {
+              Set-Content $proj $c
+              Write-Host "Removed CPDT.Extra reference from $proj"
+            } else {
+              Write-Host "No CPDT.Extra reference found in $proj"
+            }
           }
-          Set-Content $f $c; Write-Host "Patched packages.config:"; Get-Content $f | Select-String "SkiaSharp"
-
-          # csproj HintPath folder names: upgrade core + Views only
-          $f="Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"
-          $c=(Get-Content $f -Raw)
-          $c=$c -replace 'SkiaSharp\.Views\.1\.60\.3','SkiaSharp.Views.2.88.8'  # Views (not Forms)
-          $c=$c -replace 'SkiaSharp\.1\.60\.3','SkiaSharp.2.88.8'               # core only (no Views. prefix)
-          # Assembly version: upgrade core + Views; leave Forms at 1.60.0.0
-          $c=$c -replace 'SkiaSharp, Version=1\.60\.0\.0','SkiaSharp, Version=2.88.0.0'
-          $c=$c -replace 'SkiaSharp\.Views\.Desktop, Version=1\.60\.0\.0','SkiaSharp.Views.Desktop, Version=2.88.0.0'
-          $c=$c -replace 'SkiaSharp\.Views\.WPF, Version=1\.60\.0\.0','SkiaSharp.Views.WPF, Version=2.88.0.0'
-          $c=$c -replace '<Error Condition="[^"]*SkiaSharp[^"]*"[^>]*/>', ''
-          Set-Content $f $c; Write-Host "Patched Saplin.CPDT.WPF.csproj"
-
-          # UICore PackageReference: upgrade core + Views; keep Forms at 1.60.3
-          $f="Saplin.CPDT.UICore\Saplin.CPDT.UICore.csproj"
-          $c=(Get-Content $f -Raw)
-          $c=$c -replace '"SkiaSharp\.Views" Version="1\.60\.3"','"SkiaSharp.Views" Version="2.88.8"'
-          $c=$c -replace '"SkiaSharp" Version="1\.60\.3"','"SkiaSharp" Version="2.88.8"'
-          # SkiaSharp.Views.Forms PackageReference intentionally unchanged
-          Set-Content $f $c; Write-Host "Patched Saplin.CPDT.UICore.csproj"
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -126,87 +105,6 @@ jobs:
         run: |
           $slnDir = (Get-Location).Path + "\"
           msbuild Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj /t:Restore /p:RestorePackagesConfig=true "/p:SolutionDir=$slnDir" /verbosity:minimal
-
-      - name: List SkiaSharp DLLs in packages (diagnostic)
-        shell: pwsh
-        run: |
-          Write-Host "=== All SkiaSharp DLLs found after restore ==="
-          Get-ChildItem "packages" -Recurse -Filter "SkiaSharp*.dll" |
-            Select-Object -ExpandProperty FullName | Sort-Object
-
-      - name: Fix SkiaSharp HintPaths + add Desktop.Common reference
-        shell: pwsh
-        run: |
-          $root = (Get-Location).Path
-          $f = "Saplin.CPDT.WPF\Saplin.CPDT.WPF.csproj"
-          $c = Get-Content $f -Raw
-
-          function Find-BestDll($name) {
-            Get-ChildItem "packages" -Recurse -Filter $name |
-              Where-Object {
-                $p = $_.FullName
-                $p -notmatch "\\ref\\" -and $p -notmatch "\\runtimes\\" -and
-                $p -notmatch "\\MonoAndroid" -and $p -notmatch "\\Xamarin\." -and
-                $p -notmatch "\\Tizen" -and $p -notmatch "\\monoandroid" -and
-                $p -notmatch "\\net6" -and $p -notmatch "\\net7" -and $p -notmatch "\\net8"
-              } |
-              Sort-Object {
-                $p = $_.FullName
-                if ($p -match "\\net45\\") { 0 } elseif ($p -match "\\net461\\") { 1 }
-                elseif ($p -match "\\net4") { 2 } elseif ($p -match "\\netstandard2\.0\\") { 3 }
-                else { 4 }
-              } | Select-Object -First 1
-          }
-
-          # Update HintPaths for existing references
-          foreach ($dll in @("SkiaSharp.dll","SkiaSharp.Views.Desktop.dll","SkiaSharp.Views.WPF.dll")) {
-            $found = Find-BestDll $dll
-            if ($found) {
-              $hint = "..\" + $found.FullName.Substring($root.Length + 1)
-              Write-Host "FOUND: $dll -> $hint"
-              $c = $c -replace "\.\.\\packages\\[^<]*\\$([regex]::Escape($dll))", $hint
-            } else {
-              Write-Host "NOT FOUND: $dll (package may not include .NET Framework variant)"
-            }
-          }
-
-          # Add SkiaSharp.Views.Desktop.Common.dll — new assembly in 2.88.x (type-forwarded from Desktop)
-          $common = Find-BestDll "SkiaSharp.Views.Desktop.Common.dll"
-          if ($common) {
-            $hint = "..\" + $common.FullName.Substring($root.Length + 1)
-            Write-Host "Adding NEW ref: SkiaSharp.Views.Desktop.Common -> $hint"
-            if ($c -notmatch "SkiaSharp\.Views\.Desktop\.Common") {
-              $newRef = "    <Reference Include=`"SkiaSharp.Views.Desktop.Common`">`n      <HintPath>$hint</HintPath>`n    </Reference>`n"
-              $c = $c.Replace('    <Reference Include="SkiaSharp.Views.WPF">', $newRef + '    <Reference Include="SkiaSharp.Views.WPF">')
-              Write-Host "Reference added"
-            }
-          } else {
-            Write-Host "NOT FOUND: SkiaSharp.Views.Desktop.Common.dll"
-          }
-
-          Set-Content $f $c
-          Write-Host "--- HintPaths after update ---"
-          Select-String "HintPath" $f | Select-Object -ExpandProperty Line
-
-      - name: Add SkiaSharp binding redirect (Forms 1.60 -> core 2.88 at runtime)
-        shell: pwsh
-        run: |
-          $configPath = "Saplin.CPDT.WPF\App.config"
-          $redirect = '<runtime><assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1"><dependentAssembly><assemblyIdentity name="SkiaSharp" publicKeyToken="0738eb9f132ed756" culture="neutral" /><bindingRedirect oldVersion="0.0.0.0-2.88.0.0" newVersion="2.88.0.0" /></dependentAssembly></assemblyBinding></runtime>'
-          if (Test-Path $configPath) {
-            $content = Get-Content $configPath -Raw
-            if ($content -notmatch '<runtime>') {
-              $content = $content -replace '</configuration>', "$redirect</configuration>"
-              Set-Content $configPath $content
-              Write-Host "Binding redirect added to existing App.config"
-            } else {
-              Write-Host "App.config already has <runtime> block, skipping"
-            }
-          } else {
-            Set-Content $configPath "<?xml version='1.0' encoding='utf-8'?><configuration>$redirect</configuration>"
-            Write-Host "Created new App.config with binding redirect"
-          }
-          Get-Content $configPath
 
       - name: Build Release
         shell: pwsh
