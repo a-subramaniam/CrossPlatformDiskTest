@@ -1,0 +1,35 @@
+trigger: none
+
+pool:
+  vmImage: 'macOS-13'
+
+steps:
+  - bash: |
+      echo "##vso[task.prependpath]/Library/Frameworks/Mono.framework/Versions/Current/Commands"
+    displayName: Add Mono to PATH
+
+  - bash: |
+      TARGET="Saplin.CPDT.UICore/ViewModels/ResultsDbViewModel.cs"
+      sed -i '' \
+        's|public const string cpdt_web_url = @"https://maxim-saplin.github.io/cpdt_results/";|public const string cpdt_web_url = @""; // telemetry disabled|' \
+        "$TARGET"
+      grep -q 'cpdt_web_url = @""' "$TARGET" || { echo "Patch failed"; exit 1; }
+    displayName: Apply telemetry patch
+
+  - bash: msbuild CrossPlatformDiskTest.sln /t:Restore /verbosity:minimal
+    displayName: Restore NuGet packages
+
+  - bash: |
+      msbuild Saplin.CPDT.Mac/Saplin.CPDT.Mac.csproj \
+        /p:Configuration=Release /p:Platform=AnyCPU /verbosity:minimal
+    displayName: Build Release
+
+  - bash: |
+      cd Saplin.CPDT.Mac/bin/Release
+      zip -r "$(Build.ArtifactStagingDirectory)/CPDT-macOS.zip" CPDT.app
+    displayName: Package .app
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/CPDT-macOS.zip'
+      ArtifactName: CPDT-macOS
