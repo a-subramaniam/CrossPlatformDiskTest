@@ -1,7 +1,7 @@
 workflows:
   build-cpdt-macos:
     name: CPDT — macOS Xamarin.Mac
-    instance_type: mac_pro_gen1
+    instance_type: mac_pro
     scripts:
       - name: Verify toolchain
         script: |
